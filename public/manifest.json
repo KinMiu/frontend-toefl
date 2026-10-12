@@ -1,0 +1,28 @@
+{
+  "short_name": "TOEFL ITB",
+  "name": "TOEFL ITP ITB Prep • Section 2",
+  "description": "Aplikasi Latihan Tes TOEFL ITP Section 2: Structure & Written Expression untuk Masuk ITB & Beasiswa dengan Spaced Repetition System",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/dashboard",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "display": "standalone",
+  "orientation": "portrait",
+  "categories": ["education", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Mulai Latihan",
+      "short_name": "Latihan",
+      "description": "Buka ruang latihan TOEFL Section 2",
+      "url": "/dashboard",
+      "icons": [{ "src": "/icon.svg", "sizes": "192x192" }]
+    }
+  ]
+}
