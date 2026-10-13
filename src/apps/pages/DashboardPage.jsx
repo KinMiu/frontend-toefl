@@ -35,8 +35,12 @@ export default function DashboardPage() {
   // Practice Setup State
   const [questionCount, setQuestionCount] = useState(10);
   const [customQuestionCount, setCustomQuestionCount] = useState("");
-  const [timerMode, setTimerMode] = useState("45"); // default 45s (TOEFL standard)
-  const [customSeconds, setCustomSeconds] = useState("30");
+  // Timer Setup State: "session" | "question" | "none"
+  const [timerCategory, setTimerCategory] = useState("session");
+  const [sessionMinutes, setSessionMinutes] = useState("25"); // default 25 menit (TOEFL ITP Sec 2)
+  const [customSessionMinutes, setCustomSessionMinutes] = useState("120"); // contoh user: 120 menit
+  const [questionSeconds, setQuestionSeconds] = useState("45"); // default 45 detik
+  const [customQuestionSeconds, setCustomQuestionSeconds] = useState("30");
   const [startLoading, setStartLoading] = useState(false);
   const [startError, setStartError] = useState("");
 
@@ -64,16 +68,27 @@ export default function DashboardPage() {
       ? parseInt(customQuestionCount, 10) || 10
       : questionCount;
 
-  const resolvedTimeSec =
-    timerMode === "zen"
-      ? null
-      : timerMode === "custom"
-      ? parseInt(customSeconds, 10) || 30
-      : parseInt(timerMode, 10);
+  // Resolve total time for session timer (in seconds)
+  const resolvedTotalTimeSec =
+    timerCategory === "session"
+      ? (sessionMinutes === "custom"
+          ? (parseInt(customSessionMinutes, 10) || 25) * 60
+          : (parseInt(sessionMinutes, 10) || 25) * 60)
+      : null;
+
+  // Resolve time per question (in seconds)
+  const resolvedTimePerQuestionSec =
+    timerCategory === "question"
+      ? (questionSeconds === "custom"
+          ? parseInt(customQuestionSeconds, 10) || 30
+          : parseInt(questionSeconds, 10) || 45)
+      : null;
 
   const estimatedMinutes =
-    resolvedTimeSec && resolvedCount
-      ? Math.ceil((resolvedCount * resolvedTimeSec) / 60)
+    timerCategory === "session"
+      ? Math.round((resolvedTotalTimeSec || 0) / 60)
+      : timerCategory === "question" && resolvedTimePerQuestionSec && resolvedCount
+      ? Math.ceil((resolvedCount * resolvedTimePerQuestionSec) / 60)
       : null;
 
   const handleStartPractice = async () => {
@@ -83,14 +98,18 @@ export default function DashboardPage() {
     try {
       const res = await apiClient.post("/practice/start", {
         questionCount: resolvedCount,
-        timePerQuestionSec: resolvedTimeSec,
+        timerType: timerCategory,
+        totalTimeSec: resolvedTotalTimeSec,
+        timePerQuestionSec: resolvedTimePerQuestionSec,
       });
 
       if (res.data.success) {
         navigate("/practice", {
           state: {
             sessionData: res.data.data,
-            timePerQuestionSec: resolvedTimeSec,
+            timerType: timerCategory,
+            totalTimeSec: resolvedTotalTimeSec,
+            timePerQuestionSec: resolvedTimePerQuestionSec,
           },
         });
       }
@@ -136,15 +155,41 @@ export default function DashboardPage() {
     },
   ];
 
-  // Timer presets definition
-  const TIMER_PRESETS = [
+  // Presets definition for Timer Per Sesi (Total Exam Time)
+  const SESSION_TIMER_PRESETS = [
     {
-      id: "zen",
-      icon: "🌿",
-      title: "Zen Mode",
-      desc: "Santai tanpa timer",
-      sub: "Bebas tekanan",
+      id: "25",
+      icon: "⏱️",
+      title: "25 Menit",
+      desc: "Standar Resmi ETS",
+      sub: "Simulasi Section 2",
+      isRecommended: true,
     },
+    {
+      id: "40",
+      icon: "⏳",
+      title: "40 Menit",
+      desc: "1 Menit / Soal",
+      sub: "Fokus & Teliti",
+    },
+    {
+      id: "60",
+      icon: "🕒",
+      title: "60 Menit (1 Jam)",
+      desc: "Waktu Luang",
+      sub: "Latihan Mendalam",
+    },
+    {
+      id: "120",
+      icon: "🏆",
+      title: "120 Menit (2 Jam)",
+      desc: "Sesi Marathon",
+      sub: "Paling Leluasa",
+    },
+  ];
+
+  // Presets definition for Timer Per Soal
+  const QUESTION_TIMER_PRESETS = [
     {
       id: "45",
       icon: "⏱️",
@@ -439,97 +484,253 @@ export default function DashboardPage() {
           </div>
 
           {/* STEP 2: MODE TIMER */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                 <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-black">
                   2
                 </span>
                 <span>Pilih Mode Waktu & Timer</span>
               </label>
+
               <span className="text-[11px] text-slate-400">
-                Pilihan:{" "}
+                Mode Aktif:{" "}
                 <strong className="text-white">
-                  {timerMode === "zen" ? "Tanpa Batas Waktu" : `${resolvedTimeSec}s / soal`}
+                  {timerCategory === "session"
+                    ? `⏱️ Timer Per Sesi (${sessionMinutes === "custom" ? customSessionMinutes : sessionMinutes} Menit)`
+                    : timerCategory === "question"
+                    ? `⚡ Timer Per Soal (${questionSeconds === "custom" ? customQuestionSeconds : questionSeconds}s / soal)`
+                    : "🌿 Tanpa Batas Waktu"}
                 </strong>
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
-              {TIMER_PRESETS.map((t) => {
-                const isSelected = timerMode === t.id;
-                return (
+            {/* Segmented Category Selector */}
+            <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-900/90 border border-slate-800 rounded-2xl w-full sm:w-fit">
+              <button
+                type="button"
+                onClick={() => setTimerCategory("session")}
+                className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                  timerCategory === "session"
+                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/20 ring-1 ring-blue-400/30"
+                    : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+                }`}
+              >
+                <span>⏱️</span>
+                <span>Timer Per Sesi (Total)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTimerCategory("question")}
+                className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                  timerCategory === "question"
+                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/20 ring-1 ring-blue-400/30"
+                    : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+                }`}
+              >
+                <span>⚡</span>
+                <span>Timer Per Soal</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTimerCategory("none")}
+                className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                  timerCategory === "none"
+                    ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/20 ring-1 ring-emerald-400/30"
+                    : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+                }`}
+              >
+                <span>🌿</span>
+                <span>Tanpa Timer (Zen)</span>
+              </button>
+            </div>
+
+            {/* TAB CONTENT: 1. TIMER PER SESI */}
+            {timerCategory === "session" && (
+              <div className="space-y-3 animate-fade-in">
+                <p className="text-xs text-slate-400">
+                  💡 <strong>Timer Per Sesi:</strong> Waktu total dihitung mundur terus untuk keseluruhan sesi ujian (misal 25 menit, 60 menit, atau 120 menit). Timer <strong>tidak me-reset</strong> saat Anda berpindah nomor soal, dan sesi akan selesai otomatis saat total waktu habis.
+                </p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+                  {SESSION_TIMER_PRESETS.map((t) => {
+                    const isSelected = sessionMinutes === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setSessionMinutes(t.id)}
+                        className={`relative p-3.5 sm:p-4 rounded-2xl border text-left transition-all ${
+                          isSelected
+                            ? "bg-blue-600/15 border-blue-500 shadow-lg shadow-blue-500/15 ring-1 ring-blue-500/40"
+                            : "bg-slate-950/60 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/50"
+                        }`}
+                      >
+                        {t.isRecommended && (
+                          <span className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-emerald-600 text-[9px] font-black uppercase text-white shadow-md">
+                            Standar
+                          </span>
+                        )}
+                        <div className="text-2xl mb-1.5">{t.icon}</div>
+                        <div
+                          className={`text-sm font-bold ${
+                            isSelected ? "text-white" : "text-slate-200"
+                          }`}
+                        >
+                          {t.title}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{t.desc}</p>
+                        <span className="block text-[10px] text-blue-400/90 font-medium mt-1.5">
+                          {t.sub}
+                        </span>
+                      </button>
+                    );
+                  })}
+
+                  {/* Custom Session Minutes Button */}
                   <button
-                    key={t.id}
                     type="button"
-                    onClick={() => setTimerMode(t.id)}
-                    className={`relative p-3.5 sm:p-4 rounded-2xl border text-left transition-all ${
-                      isSelected
+                    onClick={() => setSessionMinutes("custom")}
+                    className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between ${
+                      sessionMinutes === "custom"
                         ? "bg-blue-600/15 border-blue-500 shadow-lg shadow-blue-500/15 ring-1 ring-blue-500/40"
                         : "bg-slate-950/60 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/50"
                     }`}
                   >
-                    {t.isRecommended && (
-                      <span className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-emerald-600 text-[9px] font-black uppercase text-white shadow-md">
-                        Standar
-                      </span>
-                    )}
-                    <div className="text-2xl mb-1.5">{t.icon}</div>
-                    <div
-                      className={`text-sm font-bold ${
-                        isSelected ? "text-white" : "text-slate-200"
-                      }`}
-                    >
-                      {t.title}
+                    <div>
+                      <div className="text-2xl mb-1.5">⚙️</div>
+                      <div
+                        className={`text-sm font-bold ${
+                          sessionMinutes === "custom" ? "text-white" : "text-slate-200"
+                        }`}
+                      >
+                        Custom Menit
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Atur menit bebas</p>
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{t.desc}</p>
-                    <span className="block text-[10px] text-blue-400/90 font-medium mt-1.5">
-                      {t.sub}
+                    <span className="text-[10px] text-blue-400/90 font-semibold mt-2">
+                      Atur Durasi
                     </span>
                   </button>
-                );
-              })}
+                </div>
 
-              {/* Custom Timer Button */}
-              <button
-                type="button"
-                onClick={() => setTimerMode("custom")}
-                className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between ${
-                  timerMode === "custom"
-                    ? "bg-blue-600/15 border-blue-500 shadow-lg shadow-blue-500/15 ring-1 ring-blue-500/40"
-                    : "bg-slate-950/60 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/50"
-                }`}
-              >
-                <div>
-                  <div className="text-2xl mb-1.5">⚙️</div>
-                  <div
-                    className={`text-sm font-bold ${
-                      timerMode === "custom" ? "text-white" : "text-slate-200"
+                {/* Custom Session Minutes Input */}
+                {sessionMinutes === "custom" && (
+                  <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 max-w-md flex items-center gap-3 animate-fade-in">
+                    <input
+                      type="number"
+                      min="1"
+                      max="300"
+                      value={customSessionMinutes}
+                      onChange={(e) => setCustomSessionMinutes(e.target.value)}
+                      placeholder="Total menit sesi (misal 120)"
+                      className="flex-1 px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                    <span className="text-xs text-slate-400 font-medium">menit total sesi</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB CONTENT: 2. TIMER PER SOAL */}
+            {timerCategory === "question" && (
+              <div className="space-y-3 animate-fade-in">
+                <p className="text-xs text-slate-400">
+                  ⚡ <strong>Timer Per Soal:</strong> Waktu dihitung mundur per butir soal (misal 30 detik atau 45 detik). Timer akan <strong>me-reset kembali</strong> setiap Anda berpindah ke butir soal berikutnya. Cocok untuk melatih ritme kecepatan pengerjaan per item.
+                </p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+                  {QUESTION_TIMER_PRESETS.map((t) => {
+                    const isSelected = questionSeconds === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setQuestionSeconds(t.id)}
+                        className={`relative p-3.5 sm:p-4 rounded-2xl border text-left transition-all ${
+                          isSelected
+                            ? "bg-blue-600/15 border-blue-500 shadow-lg shadow-blue-500/15 ring-1 ring-blue-500/40"
+                            : "bg-slate-950/60 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/50"
+                        }`}
+                      >
+                        {t.isRecommended && (
+                          <span className="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-emerald-600 text-[9px] font-black uppercase text-white shadow-md">
+                            Standar
+                          </span>
+                        )}
+                        <div className="text-2xl mb-1.5">{t.icon}</div>
+                        <div
+                          className={`text-sm font-bold ${
+                            isSelected ? "text-white" : "text-slate-200"
+                          }`}
+                        >
+                          {t.title}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{t.desc}</p>
+                        <span className="block text-[10px] text-blue-400/90 font-medium mt-1.5">
+                          {t.sub}
+                        </span>
+                      </button>
+                    );
+                  })}
+
+                  {/* Custom Question Seconds Button */}
+                  <button
+                    type="button"
+                    onClick={() => setQuestionSeconds("custom")}
+                    className={`p-3.5 sm:p-4 rounded-2xl border text-left transition-all flex flex-col justify-between ${
+                      questionSeconds === "custom"
+                        ? "bg-blue-600/15 border-blue-500 shadow-lg shadow-blue-500/15 ring-1 ring-blue-500/40"
+                        : "bg-slate-950/60 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/50"
                     }`}
                   >
-                    Custom Waktu
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Atur detik bebas</p>
+                    <div>
+                      <div className="text-2xl mb-1.5">⚙️</div>
+                      <div
+                        className={`text-sm font-bold ${
+                          questionSeconds === "custom" ? "text-white" : "text-slate-200"
+                        }`}
+                      >
+                        Custom Detik
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Atur detik bebas</p>
+                    </div>
+                    <span className="text-[10px] text-blue-400/90 font-semibold mt-2">
+                      Atur Detik
+                    </span>
+                  </button>
                 </div>
-                <span className="text-[10px] text-blue-400/90 font-semibold mt-2">
-                  Atur Detik
-                </span>
-              </button>
-            </div>
 
-            {/* Custom Timer Input */}
-            {timerMode === "custom" && (
-              <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 max-w-md flex items-center gap-3 animate-fade-in">
-                <input
-                  type="number"
-                  min="10"
-                  max="300"
-                  value={customSeconds}
-                  onChange={(e) => setCustomSeconds(e.target.value)}
-                  placeholder="Detik per soal (misal 40)"
-                  className="flex-1 px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500"
-                />
-                <span className="text-xs text-slate-400 font-medium">detik / soal</span>
+                {/* Custom Question Seconds Input */}
+                {questionSeconds === "custom" && (
+                  <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 max-w-md flex items-center gap-3 animate-fade-in">
+                    <input
+                      type="number"
+                      min="10"
+                      max="300"
+                      value={customQuestionSeconds}
+                      onChange={(e) => setCustomQuestionSeconds(e.target.value)}
+                      placeholder="Detik per soal (misal 30)"
+                      className="flex-1 px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500"
+                    />
+                    <span className="text-xs text-slate-400 font-medium">detik / soal</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB CONTENT: 3. ZEN MODE */}
+            {timerCategory === "none" && (
+              <div className="p-4 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 flex items-start gap-3 animate-fade-in">
+                <span className="text-2xl">🌿</span>
+                <div>
+                  <h4 className="text-sm font-bold text-emerald-300">Zen Mode Aktif</h4>
+                  <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
+                    Kerjakan seluruh soal dengan tenang tanpa countdown timer maupun tekanan waktu. Sangat direkomendasikan saat Anda ingin membaca penjelasan dan menganalisis struktur kalimat secara mendalam.
+                  </p>
+                </div>
               </div>
             )}
           </div>
@@ -546,13 +747,15 @@ export default function DashboardPage() {
                   {resolvedCount} Butir Soal
                 </span>
                 <span className="px-3 py-1 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-bold">
-                  {timerMode === "zen"
-                    ? "🌿 Zen Mode (Santai)"
-                    : `⏱️ ${resolvedTimeSec} Detik / Soal`}
+                  {timerCategory === "session"
+                    ? `⏱️ Timer Per Sesi: ${sessionMinutes === "custom" ? customSessionMinutes : sessionMinutes} Menit`
+                    : timerCategory === "question"
+                    ? `⚡ Timer Per Soal: ${questionSeconds === "custom" ? customQuestionSeconds : questionSeconds}s / soal`
+                    : "🌿 Zen Mode (Tanpa Timer)"}
                 </span>
                 {estimatedMinutes && (
                   <span className="px-3 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 font-medium">
-                    Estimasi Selesai: ~{estimatedMinutes} Menit
+                    {timerCategory === "session" ? `Durasi Ujian: ${estimatedMinutes} Menit` : `Estimasi Waktu: ~${estimatedMinutes} Menit`}
                   </span>
                 )}
               </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import apiClient from "../api/client";
 import {
@@ -20,6 +20,17 @@ export default function PracticeRoomPage() {
 
   // Retrieve practice questions and timer config from location state
   const sessionData = location.state?.sessionData;
+  const timerType =
+    location.state?.timerType ||
+    sessionData?.timerType ||
+    (location.state?.totalTimeSec || sessionData?.totalTimeSec
+      ? "session"
+      : location.state?.timePerQuestionSec || sessionData?.timePerQuestionSec
+      ? "question"
+      : "none");
+
+  const totalTimeSec =
+    location.state?.totalTimeSec || sessionData?.totalTimeSec || null;
   const timePerQuestionSec =
     location.state?.timePerQuestionSec || sessionData?.timePerQuestionSec || null;
 
@@ -29,11 +40,20 @@ export default function PracticeRoomPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({}); // { [questionId]: "A" | "B" | "C" | "D" }
   const [flags, setFlags] = useState({}); // { [questionId]: boolean }
-  const [timeLeft, setTimeLeft] = useState(timePerQuestionSec);
+
+  // Timer countdown states
+  const [sessionTimeLeft, setSessionTimeLeft] = useState(totalTimeSec);
+  const [questionTimeLeft, setQuestionTimeLeft] = useState(timePerQuestionSec);
+  const [isTimeUpModal, setIsTimeUpModal] = useState(false);
+
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
   const [isMobilePaletteOpen, setIsMobilePaletteOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+
+  const isSubmittingRef = useRef(false);
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
 
   const activeQuestion = questions[currentIndex];
 
@@ -44,27 +64,103 @@ export default function PracticeRoomPage() {
     }
   }, [questions, navigate]);
 
-  // Reset or run countdown timer when question changes (if timer mode enabled)
+  // Helper format seconds to mm:ss or hh:mm:ss
+  const formatTime = (seconds) => {
+    if (seconds == null || isNaN(seconds)) return "00:00";
+    const totalSecs = Math.max(0, Math.floor(seconds));
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+
+    if (hrs > 0) {
+      return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    }
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Submit Handler
+  const handleSubmit = async (isAuto = false) => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    setSubmitError("");
+    setIsSubmitting(true);
+
+    try {
+      const currentAnswers = answersRef.current;
+      const payloadAnswers = questions.map((q) => ({
+        questionId: q._id,
+        selectedAnswer: currentAnswers[q._id] || null,
+      }));
+
+      const res = await apiClient.post("/practice/submit", {
+        answers: payloadAnswers,
+        timerType,
+        totalTimeSec,
+        timePerQuestionSec,
+      });
+
+      if (res.data.success) {
+        navigate("/results", {
+          state: {
+            resultData: res.data.data,
+            autoSubmitted: isAuto,
+          },
+        });
+      }
+    } catch (err) {
+      setSubmitError(
+        err.response?.data?.message || "Gagal mengirim jawaban. Silakan coba lagi."
+      );
+      setIsSubmitting(false);
+      isSubmittingRef.current = false;
+      setIsTimeUpModal(false);
+    }
+  };
+
+  // 1. Session Timer (continuous countdown for full session)
   useEffect(() => {
-    if (!timePerQuestionSec) return;
+    if (timerType !== "session" || !totalTimeSec) return;
 
-    setTimeLeft(timePerQuestionSec);
-
-    const timerInterval = setInterval(() => {
-      setTimeLeft((prev) => {
+    const sessionInterval = setInterval(() => {
+      setSessionTimeLeft((prev) => {
         if (prev <= 1) {
-          // Auto advance to next question when timer runs out
-          if (currentIndex < totalQuestions - 1) {
-            setCurrentIndex((curr) => curr + 1);
-          }
-          return timePerQuestionSec;
+          clearInterval(sessionInterval);
+          setIsTimeUpModal(true);
+          handleSubmit(true);
+          return 0;
         }
         return prev - 1;
       });
     }, 1000);
 
-    return () => clearInterval(timerInterval);
-  }, [currentIndex, timePerQuestionSec, totalQuestions]);
+    return () => clearInterval(sessionInterval);
+  }, [timerType, totalTimeSec]);
+
+  // 2. Question Timer (countdown per question, resets on currentIndex change)
+  useEffect(() => {
+    if (timerType !== "question" || !timePerQuestionSec) return;
+
+    setQuestionTimeLeft(timePerQuestionSec);
+
+    const questionInterval = setInterval(() => {
+      setQuestionTimeLeft((prev) => {
+        if (prev <= 1) {
+          if (currentIndex < totalQuestions - 1) {
+            setCurrentIndex((curr) => curr + 1);
+            return timePerQuestionSec;
+          } else {
+            clearInterval(questionInterval);
+            setIsTimeUpModal(true);
+            handleSubmit(true);
+            return 0;
+          }
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(questionInterval);
+  }, [currentIndex, timerType, timePerQuestionSec, totalQuestions]);
 
   // Keyboard navigation shortcuts
   useEffect(() => {
@@ -103,35 +199,7 @@ export default function PracticeRoomPage() {
   const unansweredCount = totalQuestions - answeredCount;
   const flaggedCount = Object.values(flags).filter(Boolean).length;
 
-  const handleSubmit = async () => {
-    setSubmitError("");
-    setIsSubmitting(true);
 
-    try {
-      const payloadAnswers = questions.map((q) => ({
-        questionId: q._id,
-        selectedAnswer: answers[q._id] || null,
-      }));
-
-      const res = await apiClient.post("/practice/submit", {
-        answers: payloadAnswers,
-        timePerQuestionSec,
-      });
-
-      if (res.data.success) {
-        navigate("/results", {
-          state: {
-            resultData: res.data.data,
-          },
-        });
-      }
-    } catch (err) {
-      setSubmitError(
-        err.response?.data?.message || "Gagal mengirim jawaban. Silakan coba lagi."
-      );
-      setIsSubmitting(false);
-    }
-  };
 
   if (!activeQuestion) {
     return null;
@@ -228,19 +296,50 @@ export default function PracticeRoomPage() {
           </div>
 
           {/* Timer Display */}
-          {timePerQuestionSec && (
+          {timerType === "session" && sessionTimeLeft !== null && (
             <div
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-xl border font-mono font-bold text-xs sm:text-sm transition-all ${
-                timeLeft <= 10
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-mono font-bold text-xs sm:text-sm transition-all shadow-sm ${
+                sessionTimeLeft <= 60
+                  ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse"
+                  : sessionTimeLeft <= 300
+                  ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                  : "bg-slate-800 border-slate-700 text-slate-200"
+              }`}
+              title="Waktu Sesi Berjalan (Continuous)"
+            >
+              <Timer className="w-3.5 h-3.5 text-blue-400" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 font-sans hidden sm:inline">
+                  Sisa Waktu Sesi:
+                </span>
+                <span>{formatTime(sessionTimeLeft)}</span>
+              </div>
+            </div>
+          )}
+
+          {timerType === "question" && questionTimeLeft !== null && (
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-mono font-bold text-xs sm:text-sm transition-all shadow-sm ${
+                questionTimeLeft <= 10
                   ? "bg-red-500/20 border-red-500 text-red-400 animate-pulse"
                   : "bg-slate-800 border-slate-700 text-slate-200"
               }`}
+              title="Waktu Per Butir Soal"
             >
-              <Timer className="w-3.5 h-3.5" />
-              <span>
-                {Math.floor(timeLeft / 60)}:
-                {timeLeft % 60 < 10 ? `0${timeLeft % 60}` : timeLeft % 60}
-              </span>
+              <Timer className="w-3.5 h-3.5 text-amber-400" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 font-sans hidden sm:inline">
+                  Soal Ini:
+                </span>
+                <span>{formatTime(questionTimeLeft)}</span>
+              </div>
+            </div>
+          )}
+
+          {timerType === "none" && (
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+              <span>🌿</span>
+              <span>Zen Mode</span>
             </div>
           )}
 
@@ -573,6 +672,16 @@ export default function PracticeRoomPage() {
                 <span>Ditandai Ragu:</span>
                 <span className="font-bold text-amber-400">{flaggedCount}</span>
               </div>
+              <div className="flex justify-between py-1 border-b border-slate-800">
+                <span>Mode Timer:</span>
+                <span className="font-bold text-slate-200">
+                  {timerType === "session"
+                    ? `Per Sesi (${formatTime(sessionTimeLeft)} sisa)`
+                    : timerType === "question"
+                    ? `Per Soal (${timePerQuestionSec}s)`
+                    : "Zen Mode (Tanpa Timer)"}
+                </span>
+              </div>
             </div>
 
             <div className="flex items-center gap-3 pt-3">
@@ -586,7 +695,7 @@ export default function PracticeRoomPage() {
               </button>
               <button
                 type="button"
-                onClick={handleSubmit}
+                onClick={() => handleSubmit(false)}
                 disabled={isSubmitting}
                 className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 disabled:opacity-50"
               >
@@ -596,6 +705,27 @@ export default function PracticeRoomPage() {
                   <span>Kirim Jawaban</span>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Time-Up Auto-Submit Modal */}
+      {isTimeUpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-3xl animate-bounce">
+              ⏰
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-lg font-extrabold text-white">Waktu Ujian Telah Habis!</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Durasi pengerjaan Anda telah selesai. Jawaban Anda sedang otomatis dikumpulkan dan dievaluasi...
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 text-xs text-blue-400 font-semibold pt-2">
+              <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+              <span>Memproses Hasil Ujian...</span>
             </div>
           </div>
         </div>
