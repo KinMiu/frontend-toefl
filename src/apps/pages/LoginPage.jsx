@@ -77,10 +77,10 @@ export default function LoginPage() {
             <GraduationCap className="w-9 h-9" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            TOEFL ITP ITB Prep
+            TOEFL ITP Prep
           </h1>
           <p className="text-slate-400 text-sm mt-1.5">
-            Section 2: Structure & Written Expression (Target iBT 88+)
+            Section 2: Structure & Written Expression
           </p>
         </div>
 
