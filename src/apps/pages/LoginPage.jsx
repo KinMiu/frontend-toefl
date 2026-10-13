@@ -165,7 +165,7 @@ export default function LoginPage() {
           </form>
 
           {/* Quick Demo Access Buttons */}
-          <div className="mt-6 pt-5 border-t border-slate-800">
+          {/* <div className="mt-6 pt-5 border-t border-slate-800">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 text-center mb-3">
               ⚡ Akun Demo Instan (Sekali Klik)
             </p>
@@ -185,7 +185,7 @@ export default function LoginPage() {
                 <span>🛡️ Administrator</span>
               </button>
             </div>
-          </div>
+          </div> */}
 
           {/* Register Link */}
           <div className="mt-6 text-center">
